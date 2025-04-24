@@ -1,49 +1,33 @@
 from typing import Iterable
 
-from sqlalchemy.ext.asyncio import AsyncSession
+from advanced_alchemy.filters import StatementFilter
+from advanced_alchemy.service import SQLAlchemyAsyncRepositoryService
 
+from app.db.models import User
 from app.db.repositories import UserRepository
 from app.schemas.user import UserCreateDTO, UserReadDTO, UserUpdateDTO
 
 
-class UserService:
-    def __init__(self, session: AsyncSession):
-        self.session = session
-        self.repo = UserRepository(session=session)
+class UserService(SQLAlchemyAsyncRepositoryService[User]):
+    repository_type = UserRepository
 
-    async def create(self, data: UserCreateDTO) -> UserReadDTO:
-        created_user = await self.repo.add(data.to_orm())
-        await self.session.commit()
-        await self.session.refresh(created_user)
+    async def create(self, data: UserCreateDTO, **kwargs) -> UserReadDTO:
+        data = await self.to_model(data, 'create')
+        model = await super().create(data, **kwargs)
+        return self.to_schema(model, schema_type=UserReadDTO)
 
-        return UserReadDTO.from_orm(created_user)
+    async def get(self, user_id: int) -> UserReadDTO | None:
+        model = await super().get(user_id)
+        return self.to_schema(model, schema_type=UserReadDTO)
 
-    async def read(self, user_id: int) -> UserReadDTO | None:
-        print(user_id)
-        user = await self.repo.get_one_or_none(id=user_id)
-        if not user:
-            return None
+    async def list_and_count(self, *filters: StatementFilter) -> Iterable[UserReadDTO]:
+        models, count = await super().list_and_count(*filters)
+        return self.to_schema(models, count, filters, schema_type=UserReadDTO)
 
-        return UserReadDTO.from_orm(user)
-
-    async def read_all(self) -> Iterable[UserReadDTO]:
-        users = await self.repo.list()
-        return [UserReadDTO.from_orm(u) for u in users]
-
-    async def update(self, user_id: int, data: UserUpdateDTO):
-        user = await self.repo.get(user_id)
-        if not user:
-            return None
-
-        for k, v in (data.to_dict()).items():
-            if v is not None:
-                setattr(user, k, v)
-
-        await self.session.commit()
-        await self.session.refresh(user)
-
-        return UserReadDTO.from_orm(user)
+    async def update(self, data: UserUpdateDTO, user_id: int):
+        data = await self.to_model(data, 'update')
+        model = await super().update(data, user_id)
+        return self.to_schema(model, schema_type=UserReadDTO)
 
     async def delete(self, user_id: int) -> None:
-        await self.repo.delete(user_id)
-        await self.session.commit()
+        await super().delete(user_id)

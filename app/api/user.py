@@ -1,8 +1,9 @@
-from litestar import Controller, HttpMethod, route
-from litestar.di import Provide
-from litestar.exceptions import NotFoundException
+from typing import Annotated
 
-from app.api.deps import provide_user_service
+from advanced_alchemy.extensions.litestar import filters, providers, service
+from litestar import Controller, HttpMethod, route
+from litestar.params import Dependency
+
 from app.schemas.user import UserCreateDTO, UserReadDTO, UserUpdateDTO
 from app.services.user import UserService
 
@@ -10,7 +11,14 @@ from app.services.user import UserService
 class UserController(Controller):
     path = '/user'
     tags = ['user']
-    dependencies = {'user_service': Provide(provide_user_service)}
+    dependencies = providers.create_service_dependencies(
+        UserService,
+        key='user_service',
+        filters={
+            'id_filter': int,
+            'pagination_type': 'limit_offset',
+        },
+    )
 
     @route(http_method=HttpMethod.POST)
     async def create_user(
@@ -26,21 +34,21 @@ class UserController(Controller):
         user_id: int,
         user_service: UserService,
     ) -> UserReadDTO:
-        user = await user_service.read(user_id=user_id)
-        if not user:
-            raise NotFoundException(detail=f'User {user_id} not found')
-        # так вообще в сервис кастом ошибку, глобально обработчик. Но в рамках этого тестового мне лень
+        user = await user_service.get(user_id=user_id)
         return user
 
     @route(http_method=HttpMethod.GET)
-    async def get_users(self, user_service: UserService) -> list[UserReadDTO]:
-        return await user_service.read_all()
+    async def get_users(
+        self,
+        user_service: UserService,
+        filters: Annotated[list[filters.FilterTypes], Dependency(skip_validation=True)],
+    ) -> service.OffsetPagination[UserReadDTO]:
+        return await user_service.list_and_count(*filters)
 
     @route(http_method=HttpMethod.PATCH, path='/{user_id:int}')
     async def update_user(
         self, user_id: int, data: UserUpdateDTO, user_service: UserService
     ) -> UserReadDTO:
-        #  так вообще авторизацию бы
         return await user_service.update(user_id=user_id, data=data)
 
     @route(http_method=HttpMethod.DELETE, path='/{user_id:int}')
